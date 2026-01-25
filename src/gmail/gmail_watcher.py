@@ -57,29 +57,9 @@ class GmailWatcher:
             return False
 
     def build_query(self):
-        """Build the Gmail search query to identify UNREAD emails with "URGENT" or "IMPORTANT" labels."""
-        # Start with unread emails
-        query_parts = ["is:unread"]
-
-        # Add label filters for URGENT or IMPORTANT
-        label_filters = []
-        for label in WATCHED_LABELS:
-            # Handle both Gmail system labels and user labels
-            clean_label = label.strip().lower()
-            if clean_label in ['urgent', 'important']:
-                # For backward compatibility, also search for capitalized versions
-                label_filters.append(f"label:{clean_label}")
-                label_filters.append(f"label:{clean_label.upper()}")
-            else:
-                label_filters.append(f"label:{clean_label}")
-
-        if label_filters:
-            # Join all label conditions with OR inside parentheses
-            labels_query = "(" + " OR ".join(label_filters) + ")"
-            query_parts.append(labels_query)
-
-        # Join all parts with AND operator
-        query = " ".join(query_parts)
+        """Build the Gmail search query to identify UNREAD emails with "URGENT" or "IMPORTANT" in subject or labels."""
+        # Build the query to search for unread emails with urgent/important in subject or labels
+        query = "is:unread (subject:urgent OR subject:important OR label:urgent OR label:important)"
         return query
 
     def get_new_emails(self):
