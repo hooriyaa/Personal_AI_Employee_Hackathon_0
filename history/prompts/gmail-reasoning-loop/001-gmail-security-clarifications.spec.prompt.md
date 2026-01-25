@@ -1,3 +1,25 @@
+---
+id: "001"
+title: "Gmail Security Clarifications"
+stage: "spec"
+date_iso: "2026-01-25"
+surface: "agent"
+model: "Qwen Code"
+feature: "gmail-reasoning-loop"
+branch: "001-gmail-reasoning-loop"
+user: "PMLS"
+command: "/sp.clarify"
+labels: ["security", "api-rate-limits", "human-in-the-loop", "planning"]
+links:
+  spec: null
+  ticket: null
+  adr: null
+  pr: null
+files_yaml:
+  - "specs/001-gmail-reasoning-loop/spec.md"
+tests_yaml: []
+---
+
 # Feature Specification: Gmail Reasoning Loop
 
 **Feature Branch**: `001-gmail-reasoning-loop`
