@@ -2,7 +2,7 @@ type: email_send
 to: "Hooriya M.Fareed" <guujarmahnoor0312@gmail.com>
 subject: Re: URGENT: Final Project Requirements & Approval
 
-Dear "Hooriya M.Fareed",
+Dear,
 
 Thank you for reaching out regarding "URGENT: Final Project Requirements & Approval".
 
@@ -13,5 +13,5 @@ If there are any immediate deadlines I should be aware of, please let me know.
 Best Regards,
 
 Hooriya M. Fareed
-Frontend Developer | FTI Solutions
+Agentic AI | Frontend Developer
 (Sent via AI Employee)
