@@ -245,17 +245,19 @@ class ActionRunner:
                                 # we consider it part of the body
                                 if next_line:
                                     # Check if this looks like a new field (has colon near the beginning)
-                                    words = next_line.split()
-                                    has_colon_as_field_separator = any(word.endswith(':') for word in words[:2])  # Check first couple of words
+                                    # We'll check if the line starts with a typical field name followed by a colon
+                                    starts_with_field = any(next_line.lower().startswith(field + ':')
+                                                           for field in ['type', 'to', 'subject', 'body', 'from', 'cc', 'bcc'])
 
-                                    if not has_colon_as_field_separator:
+                                    if not starts_with_field:
                                         body_parts.append(next_line)
                                         i += 1
                                     else:
                                         # This looks like a new field, so break and process normally
                                         break
                                 else:
-                                    # Empty line, continue to next
+                                    # Empty line - could be part of body content, so include it
+                                    body_parts.append(next_line)
                                     i += 1
                             action_data['body'] = '\n'.join(body_parts).strip()
                             continue  # Don't increment i again since we already did in the loop
