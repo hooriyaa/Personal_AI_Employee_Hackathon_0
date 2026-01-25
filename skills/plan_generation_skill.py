@@ -200,20 +200,51 @@ class PlanGenerationSkill:
             sender_match = re.search(r'\*\*From:\*\*\s*(.+)', content)
             sender_full = sender_match.group(1).strip() if sender_match else "unknown@example.com"
 
-            # Extract just the name from the sender field (e.g., "Ali" from "Ali <ali@example.com>")
+            # Extract just the name from the sender field (e.g., "Ali" from "Ali <email@domain.com>")
             sender_name = sender_full.strip()
+            has_name = False  # Flag to check if we have a proper name
+
+            # Define the AI employee's name to avoid self-addressing
+            ai_employee_names = ["Hooriya M.Fareed", "hooriya m.fareed", "hooriya m fareed"]
+
             if '<' in sender_full and '>' in sender_full:
-                # Handle format like "Name <email@domain.com>"
+                # Handle format like "Name <email@domain.com>" or Name <email@domain.com>
                 name_part = sender_full.split('<')[0].strip()
                 if name_part:
-                    sender_name = name_part
+                    # Remove quotes if they exist
+                    sender_name = name_part.strip().strip('"\'')
+                    # Check if we have a meaningful name (not just quotes)
+                    if sender_name and sender_name not in ['"', "'"]:
+                        # Check if the name is the AI employee's own name (avoid self-addressing)
+                        if sender_name.lower() not in [name.lower() for name in ai_employee_names]:
+                            has_name = True
+                        else:
+                            has_name = False  # Don't use the AI's own name in greeting
+                    else:
+                        # If name is just quotes or empty, extract from email
+                        email_part = sender_full.split('<')[1].split('>')[0]
+                        sender_name = email_part.split('@')[0]  # Use part before @ as name
+                        has_name = False
                 else:
                     # If there's no name part, extract from email
                     email_part = sender_full.split('<')[1].split('>')[0]
                     sender_name = email_part.split('@')[0]  # Use part before @ as name
+                    has_name = False
             elif '@' in sender_full and ' ' not in sender_full:
                 # Just email address, extract name from before @
                 sender_name = sender_full.split('@')[0]
+                has_name = False
+            else:
+                # If it's just a name without email format, use it
+                sender_name = sender_full.strip().strip('"\'')
+                # Check if the name is the AI employee's own name (avoid self-addressing)
+                if sender_name and sender_name not in ['"', "'"]:
+                    if sender_name.lower() not in [name.lower() for name in ai_employee_names]:
+                        has_name = True
+                    else:
+                        has_name = False  # Don't use the AI's own name in greeting
+                else:
+                    has_name = False
 
             # Extract subject from the H1 header
             subject_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
@@ -221,7 +252,12 @@ class PlanGenerationSkill:
 
             # Create professional, personalized email body using the requested template
             # Format the body with newlines for proper multi-line handling
-            email_body = f"""Dear {sender_name},
+            if has_name:
+                greeting = f"Dear {sender_name},"
+            else:
+                greeting = "Dear,"
+
+            email_body = f"""{greeting}
 
 Thank you for reaching out regarding "{original_subject}".
 
@@ -232,7 +268,7 @@ If there are any immediate deadlines I should be aware of, please let me know.
 Best Regards,
 
 Hooriya M. Fareed
-Frontend Developer | FTI Solutions
+Agentic AI | Frontend Developer 
 (Sent via AI Employee)"""
 
             # Create approval file content with proper format for multi-line body
@@ -241,7 +277,7 @@ Frontend Developer | FTI Solutions
 to: {sender_full}
 subject: Re: {original_subject}
 
-Dear {sender_name},
+{greeting}
 
 Thank you for reaching out regarding "{original_subject}".
 
@@ -252,7 +288,7 @@ If there are any immediate deadlines I should be aware of, please let me know.
 Best Regards,
 
 Hooriya M. Fareed
-Frontend Developer | FTI Solutions
+Agentic AI | Frontend Developer
 (Sent via AI Employee)"""
 
             # Create approval file name based on the task file
