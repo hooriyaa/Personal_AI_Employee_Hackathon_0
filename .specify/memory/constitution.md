@@ -1,19 +1,12 @@
 <!-- SYNC IMPACT REPORT
-Version change: 1.0.0 → 1.0.1
-Modified principles:
-- PRINCIPLE_1_NAME: [Placeholder] → "Core Prime Directives"
-- PRINCIPLE_2_NAME: [Placeholder] → "Operational Boundaries (Hard Rules)"
-- PRINCIPLE_3_NAME: [Placeholder] → "Human-in-the-Loop (HITL) Workflow"
-- PRINCIPLE_4_NAME: [Placeholder] → "Work-Zone Specialization"
-- PRINCIPLE_5_NAME: [Placeholder] → "Recurring Responsibilities"
-- PRINCIPLE_6_NAME: [Placeholder] → "Folder Architecture"
-Added sections: None
+Version change: 1.0.1 → 1.0.2
+Modified principles: None
+Added sections: "MCP Server Usage"
 Removed sections: None
 Templates requiring updates:
 - .specify/templates/plan-template.md: ⚠ pending
 - .specify/templates/spec-template.md: ⚠ pending
 - .specify/templates/tasks-template.md: ⚠ pending
-- .specify/templates/commands/*.md: ⚠ pending
 Follow-up TODOs: None
 -->
 
@@ -89,7 +82,10 @@ Technology stack requirements, compliance standards, deployment policies, and op
 ## Development Workflow
 Code review requirements, testing gates, deployment approval process, and quality standards as defined by the Human-in-the-Loop workflow and operational boundaries.
 
+## MCP Server Usage
+This project utilizes the Context7 MCP server for enhanced development capabilities, allowing secure and efficient communication between tools and services.
+
 ## Governance
 This Constitution supersedes all other practices. All implementations must verify compliance with these principles. Complexity must be justified. Amendments require documentation, approval, and migration plan when necessary.
 
-**Version**: 1.0.1 | **Ratified**: TODO(RATIFICATION_DATE): Original adoption date unknown | **Last Amended**: 2026-01-25
+**Version**: 1.0.2 | **Ratified**: TODO(RATIFICATION_DATE): Original adoption date unknown | **Last Amended**: 2026-02-08

@@ -1,0 +1,7 @@
+# Default values for todo-app backend
+backend:
+  # Environment variables for the backend service
+  env:
+    # API Key configuration
+    - name: GEMINI_API_KEY
+      value: "[YAHAN APNI KEY PASTE KAREIN]"
