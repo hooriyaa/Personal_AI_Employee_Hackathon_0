@@ -3,7 +3,7 @@ Action Runner - Executes approved actions from the `/Approved` directory.
 
 This script monitors the `/Approved` directory for new files and executes
 the specified actions based on the file content. Currently supports
-email sending actions.
+email sending actions and LinkedIn posting.
 """
 
 import time
@@ -24,6 +24,14 @@ from src.gmail.auth import get_gmail_service
 from src.config.settings import APPROVED_DIR, DONE_DIR
 from src.utils.helpers import move_file
 
+# Import the LinkedIn poster module
+try:
+    from src.linkedin.poster import LinkedInPoster
+    LINKEDIN_AVAILABLE = True
+except ImportError:
+    LINKEDIN_AVAILABLE = False
+    print("LinkedIn poster module not found. Install selenium and webdriver-manager to enable LinkedIn posting.")
+
 
 class ActionRunner:
     """Executes approved actions from the Approved directory."""
@@ -34,12 +42,30 @@ class ActionRunner:
         self.running = False
 
         # Configure logging
+        import sys
+        import io
+        
+        # Create a custom stream handler that handles Unicode properly
+        class SafeStreamHandler(logging.StreamHandler):
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    # Encode/decode to handle Unicode characters safely
+                    safe_msg = msg.encode('utf-8', errors='replace').decode('utf-8')
+                    stream = self.stream
+                    # Write the safe message to the stream
+                    stream.write(safe_msg + self.terminator)
+                    self.flush()
+                except Exception:
+                    # Fallback to basic error handling
+                    self.handleError(record)
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler('Logs/action_runner.log'),
-                logging.StreamHandler()
+                SafeStreamHandler()
             ]
         )
         self.logger = logging.getLogger(__name__)
@@ -284,6 +310,8 @@ class ActionRunner:
 
         if action_type == 'email_send':
             return self.execute_email_send_action(action_data, original_file_path)
+        elif action_type == 'linkedin_post':
+            return self.execute_linkedin_post_action(action_data, original_file_path)
         else:
             self.logger.warning(f"Unknown action type: {action_type}")
             return False
@@ -307,7 +335,10 @@ class ActionRunner:
             self.logger.error(f"Missing required fields for email action in {original_file_path}")
             return False
 
-        self.logger.info(f"Sending email to: {to}, subject: {subject}")
+        # Safely log the email details to handle Unicode characters like emojis
+        safe_to = to.encode('ascii', 'replace').decode('ascii') if isinstance(to, str) else str(to)
+        safe_subject = subject.encode('ascii', 'replace').decode('ascii') if isinstance(subject, str) else str(subject)
+        self.logger.info(f"Sending email to: {safe_to}, subject: {safe_subject}")
 
         success = self.send_email(to, subject, body)
 
@@ -318,6 +349,52 @@ class ActionRunner:
 
         return success
 
+    def execute_linkedin_post_action(self, action_data, original_file_path):
+        """
+        Execute a LinkedIn post action.
+
+        Args:
+            action_data (dict): LinkedIn post action details
+            original_file_path (Path): Path to the original action file
+
+        Returns:
+            bool: True if post was successful, False otherwise
+        """
+        # Try to get content from 'content' field first, then fall back to 'body' field
+        content = action_data.get('content', '')
+        if not content:
+            content = action_data.get('body', '')
+
+        if not content:
+            self.logger.error(f"Missing required 'content' or 'body' field for LinkedIn post action in {original_file_path}")
+            return False
+
+        # Safely log the LinkedIn post content to handle Unicode characters like emojis
+        safe_content_preview = content[:50].encode('ascii', 'replace').decode('ascii') if isinstance(content, str) else str(content[:50])
+        self.logger.info(f"Posting to LinkedIn: {safe_content_preview}...")  # Log first 50 chars
+
+        # Check if LinkedIn functionality is available
+        if not LINKEDIN_AVAILABLE:
+            self.logger.error("LinkedIn poster module not available. Cannot post to LinkedIn.")
+            return False
+
+        # Create LinkedInPoster instance and execute the post
+        try:
+            poster = LinkedInPoster()
+            result = poster.post_to_linkedin(content)
+            
+            if result.get("success"):
+                self.logger.info(f"LinkedIn post content populated successfully: {original_file_path}")
+                print(result.get("message", "LinkedIn post content populated successfully. Please review and click 'Post' manually."))
+                return True
+            else:
+                error_msg = result.get("error", "Unknown error occurred")
+                self.logger.error(f"Failed to post to LinkedIn: {error_msg}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error executing LinkedIn post: {e}")
+            return False
+
     def process_approved_file(self, file_path):
         """
         Process a file in the Approved directory.
@@ -325,7 +402,9 @@ class ActionRunner:
         Args:
             file_path (Path): Path to the approved file
         """
-        self.logger.info(f"Processing approved file: {file_path}")
+        # Safely log the file path to handle Unicode characters
+        safe_file_path = str(file_path).encode('ascii', 'replace').decode('ascii')
+        self.logger.info(f"Processing approved file: {safe_file_path}")
 
         # Parse the action file
         action_data = self.parse_action_file(file_path)

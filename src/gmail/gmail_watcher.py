@@ -57,9 +57,9 @@ class GmailWatcher:
             return False
 
     def build_query(self):
-        """Build the Gmail search query to identify UNREAD emails with "URGENT" or "IMPORTANT" in subject or labels."""
-        # Build the query to search for unread emails with urgent/important in subject or labels
-        query = "is:unread (subject:urgent OR subject:important OR label:urgent OR label:important)"
+        """Build the Gmail search query to identify UNREAD emails in primary category excluding promotions and social."""
+        # Build the query to search for all unread primary emails, excluding promotions and social
+        query = 'is:unread category:primary -category:promotions -category:social'
         return query
 
     def get_new_emails(self):

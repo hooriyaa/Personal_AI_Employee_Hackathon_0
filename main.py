@@ -69,16 +69,31 @@ class GmailReasoningLoop:
     def handle_file_system_event(self, event_type, path_info):
         """
         Handle file system events.
-        
+
         Args:
             event_type (str): Type of event ('created', 'modified', 'deleted', 'moved')
             path_info (str or dict): Path information for the event
         """
         self.logger.info(f"File system event: {event_type} - {path_info}")
-        
+
         # If a new file appears in Needs_Action, trigger plan generation
         if event_type == 'created':
             if isinstance(path_info, str) and str(NEEDS_ACTION_DIR) in path_info:
+                # Deduplication Check: Before processing a file from Needs_Action,
+                # check if a Plan with the same Task ID or Source Name already exists in the Plans folder.
+                import os
+                from pathlib import Path
+
+                file_path = Path(path_info)
+                file_stem = file_path.stem  # Get the filename without extension
+
+                # Look for existing plan files in the Plans directory that match this source name
+                existing_plans = list(PLANS_DIR.glob(f"*{file_stem}*"))
+
+                if existing_plans:
+                    self.logger.info(f"Duplicate detected: Plan already exists for {file_stem}, skipping...")
+                    return  # Skip processing if a plan already exists
+
                 self.logger.info("New task file detected, triggering plan generation...")
                 # Run plan generation in a separate thread to avoid blocking
                 plan_thread = threading.Thread(target=self.plan_skill.run_once)

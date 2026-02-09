@@ -16,17 +16,17 @@ from datetime import datetime
 
 class FileSystemEventLogger(FileSystemEventHandler):
     """Custom event handler to log file system events."""
-    
+
     def __init__(self, callback=None):
         """
         Initialize the event handler.
-        
+
         Args:
             callback (callable, optional): Callback function to call when events occur
         """
         super().__init__()
         self.callback = callback
-        
+
         # Configure logging
         logging.basicConfig(
             level=logging.INFO,
@@ -43,37 +43,66 @@ class FileSystemEventLogger(FileSystemEventHandler):
         if not event.is_directory:
             self.logger.info(f"File created: {event.src_path}")
             if self.callback:
-                self.callback('created', event.src_path)
+                # Only process files that are directly inside the Needs_Action folder
+                # and ignore files in Plans/, Pending_Approval/, or Done/ directories
+                import time
+                from pathlib import Path
+
+                file_path = Path(event.src_path)
+
+                # Check if the file path contains Plans/, Pending_Approval/, or Done/
+                if any(part in ['Plans', 'Pending_Approval', 'Done'] for part in file_path.parts):
+                    self.logger.info(f"Ignoring file in restricted directory: {event.src_path}")
+                    return  # Return immediately, do not process
+
+                # Add a brief sleep and check to ensure the file still exists and is not empty
+                time.sleep(1)
+                if file_path.exists() and file_path.stat().st_size > 0:
+                    self.callback('created', event.src_path)
+                else:
+                    self.logger.info(f"File does not exist or is empty, skipping: {event.src_path}")
 
     def on_modified(self, event):
         """Handle file/directory modification events."""
-        if not event.is_directory:
-            self.logger.info(f"File modified: {event.src_path}")
-            if self.callback:
-                self.callback('modified', event.src_path)
+        # Explicitly ignore modification events
+        pass
 
     def on_deleted(self, event):
         """Handle file/directory deletion events."""
-        if not event.is_directory:
-            self.logger.info(f"File deleted: {event.src_path}")
-            if self.callback:
-                self.callback('deleted', event.src_path)
+        # Explicitly ignore deletion events
+        pass
 
     def on_moved(self, event):
         """Handle file/directory move events."""
         if not event.is_directory:
             self.logger.info(f"File moved: {event.src_path} -> {event.dest_path}")
             if self.callback:
-                self.callback('moved', {'src_path': event.src_path, 'dest_path': event.dest_path})
+                # Only process if the destination is in Needs_Action
+                import time
+                from pathlib import Path
+
+                dest_path = Path(event.dest_path)
+
+                # Check if the destination path contains Plans/, Pending_Approval/, or Done/
+                if any(part in ['Plans', 'Pending_Approval', 'Done'] for part in dest_path.parts):
+                    self.logger.info(f"Ignoring moved file to restricted directory: {event.dest_path}")
+                    return  # Return immediately, do not process
+
+                # Add a brief sleep and check to ensure the file still exists and is not empty
+                time.sleep(1)
+                if dest_path.exists() and dest_path.stat().st_size > 0:
+                    self.callback('moved', {'src_path': event.src_path, 'dest_path': event.dest_path})
+                else:
+                    self.logger.info(f"Moved file does not exist or is empty, skipping: {event.dest_path}")
 
 
 class FileSystemWatcher:
     """Monitors file system events in specified directories."""
-    
+
     def __init__(self, watch_directories=None, recursive=True, callback=None):
         """
         Initialize the file system watcher.
-        
+
         Args:
             watch_directories (list): List of directories to watch
             recursive (bool): Whether to watch subdirectories
@@ -85,7 +114,7 @@ class FileSystemWatcher:
         self.observer = Observer()
         self.event_handlers = {}
         self.running = False
-        
+
         # Configure logging
         logging.basicConfig(
             level=logging.INFO,
@@ -100,7 +129,7 @@ class FileSystemWatcher:
     def add_watch_directory(self, directory_path):
         """
         Add a directory to watch.
-        
+
         Args:
             directory_path (str or Path): Path to the directory to watch
         """
@@ -109,7 +138,7 @@ class FileSystemWatcher:
             self.logger.warning(f"Directory does not exist: {dir_path}")
             dir_path.mkdir(parents=True, exist_ok=True)
             self.logger.info(f"Created directory: {dir_path}")
-        
+
         if str(dir_path) not in self.watch_directories:
             self.watch_directories.append(str(dir_path))
             self.logger.info(f"Added directory to watch: {dir_path}")
@@ -117,7 +146,7 @@ class FileSystemWatcher:
     def remove_watch_directory(self, directory_path):
         """
         Remove a directory from watching.
-        
+
         Args:
             directory_path (str or Path): Path to the directory to remove from watching
         """
@@ -188,7 +217,7 @@ def main():
         # Start watching
         watcher.start()
         print("File system watcher started. Press Ctrl+C to stop.")
-        
+
         # Keep the main thread alive
         while True:
             time.sleep(1)
