@@ -31,30 +31,35 @@ def ensure_directory_exists(path):
 def move_file(source, destination, overwrite=False):
     """
     Move a file from source to destination.
-    
+
     Args:
         source (str or Path): Source file path
         destination (str or Path): Destination file path
         overwrite (bool): Whether to overwrite if destination exists
-        
+
     Returns:
         bool: True if successful, False otherwise
     """
     source_path = Path(source)
     dest_path = Path(destination)
-    
+
     if not source_path.exists():
         logging.error(f"Source file does not exist: {source_path}")
         return False
-    
+
     if dest_path.exists() and not overwrite:
         logging.error(f"Destination file exists and overwrite is False: {dest_path}")
         return False
-    
+
     try:
         # Ensure destination directory exists
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
+        # If destination exists and overwrite is True, delete it first
+        if dest_path.exists() and overwrite:
+            os.remove(str(dest_path))
+            logging.info(f"Deleted existing destination file: {dest_path}")
+
         # Move the file
         shutil.move(str(source_path), str(dest_path))
         logging.info(f"Moved file from {source_path} to {dest_path}")
