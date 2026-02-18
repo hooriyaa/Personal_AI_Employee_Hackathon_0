@@ -3,13 +3,16 @@ Action Runner - Executes approved actions from the `/Approved` directory.
 
 This script monitors the `/Approved` directory for new files and executes
 the specified actions based on the file content. Currently supports
-email sending actions and LinkedIn posting.
+email sending actions, LinkedIn posting, and Tool Actions (Odoo & Social Media).
 """
 
 import time
 import logging
 import yaml
 import json
+import ast
+import inspect
+import asyncio
 from pathlib import Path
 from datetime import datetime
 import re
@@ -23,6 +26,8 @@ import base64
 from src.gmail.auth import get_gmail_service
 from src.config.settings import APPROVED_DIR, DONE_DIR
 from src.utils.helpers import move_file
+from src.skills.accounting_odoo_skill import AccountingOdooSkill
+from src.skills.social_media_skill import SocialMediaSkill
 
 # Import the LinkedIn poster module
 try:
@@ -312,6 +317,8 @@ class ActionRunner:
             return self.execute_email_send_action(action_data, original_file_path)
         elif action_type == 'linkedin_post':
             return self.execute_linkedin_post_action(action_data, original_file_path)
+        elif action_type == 'approval_request':
+            return self.execute_approval_request_action(action_data, original_file_path)
         else:
             self.logger.warning(f"Unknown action type: {action_type}")
             return False
@@ -394,6 +401,211 @@ class ActionRunner:
         except Exception as e:
             self.logger.error(f"Error executing LinkedIn post: {e}")
             return False
+
+    def execute_approval_request_action(self, action_data, original_file_path):
+        """
+        Execute a tool action (Odoo or Social Media) from an approval request file.
+
+        Args:
+            action_data (dict): Action details
+            original_file_path (Path): Path to the original action file
+
+        Returns:
+            bool: True if action executed successfully, False otherwise
+        """
+        try:
+            # Read the full file content to extract tool action details
+            with open(original_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Extract tool name (e.g., "AccountingOdooSkill")
+            tool = action_data.get('tool')
+            if not tool:
+                # Try to extract from content if not in action_data
+                tool_match = re.search(r'tool:\s*(\w+)', content)
+                if tool_match:
+                    tool = tool_match.group(1)
+            
+            if not tool:
+                self.logger.error(f"Missing 'tool' field in {original_file_path}")
+                return False
+
+            # Extract action name (e.g., "create_invoice")
+            action = action_data.get('action')
+            if not action:
+                # Try to extract from content if not in action_data
+                action_match = re.search(r'action:\s*(\w+)', content)
+                if action_match:
+                    action = action_match.group(1)
+            
+            if not action:
+                self.logger.error(f"Missing 'action' field in {original_file_path}")
+                return False
+
+            # Extract Tool Arguments dictionary using ast.literal_eval
+            # Look for text between "Tool Arguments:" and next "---" or end of file
+            arguments = {}
+            args_match = re.search(r'Tool Arguments:\s*\n(.*?)(?:\n---|\Z)', content, re.DOTALL)
+            if args_match:
+                args_str = args_match.group(1).strip()
+                try:
+                    arguments = ast.literal_eval(args_str)
+                except (ValueError, SyntaxError) as e:
+                    self.logger.error(f"Failed to parse Tool Arguments in {original_file_path}: {e}")
+                    return False
+            else:
+                self.logger.warning(f"No Tool Arguments found in {original_file_path}")
+
+            # Safely log the action details
+            safe_tool = tool.encode('ascii', 'replace').decode('ascii')
+            safe_action = action.encode('ascii', 'replace').decode('ascii')
+            self.logger.info(f"Executing tool action: {safe_tool}.{safe_action}")
+
+            # Execute the appropriate tool based on tool name
+            result = None
+            
+            if tool == 'AccountingOdooSkill':
+                result = self._execute_odoo_action(action, arguments, original_file_path)
+            elif tool == 'SocialMediaSkill':
+                result = self._execute_social_media_action(action, arguments, original_file_path)
+            else:
+                self.logger.error(f"Unknown tool: {tool}")
+                return False
+
+            # Log the result
+            if result:
+                self.logger.info(f"Tool action executed successfully: {safe_tool}.{safe_action}")
+                self.logger.info(f"Result: {result}")
+                return True
+            else:
+                self.logger.error(f"Tool action failed: {safe_tool}.{safe_action}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error executing approval request action: {e}")
+            return False
+
+    def _execute_odoo_action(self, action, arguments, original_file_path):
+        """
+        Execute an Odoo tool action.
+
+        Args:
+            action (str): Action name (e.g., "create_invoice")
+            arguments (dict): Tool arguments
+            original_file_path (Path): Path to the original action file
+
+        Returns:
+            dict: Action result or None if failed
+        """
+        try:
+            # Instantiate the skill
+            skill = AccountingOdooSkill()
+
+            # Get the method
+            method = getattr(skill, action, None)
+
+            if method is None:
+                self.logger.error(f"Action '{action}' not found in AccountingOdooSkill")
+                return None
+
+            # Create a robust argument mapping dictionary
+            # Maps common agent-generated keys to skill-expected keys
+            arg_mapping = {
+                'customer': 'client_name',
+                'partner_name': 'client_name',
+                'client': 'client_name',
+                'company': 'client_name',
+                'cost': 'amount',
+                'price': 'amount',
+                'total': 'amount',
+                'value': 'amount',
+                'desc': 'description',
+                'details': 'description',
+                'note': 'description',
+                'memo': 'description'
+            }
+
+            # Apply mapping: create a copy and rename keys
+            mapped_arguments = dict(arguments)
+            for old_key, new_key in arg_mapping.items():
+                if old_key in mapped_arguments and new_key not in mapped_arguments:
+                    mapped_arguments[new_key] = mapped_arguments.pop(old_key)
+
+            # Log the mapping for debugging
+            if mapped_arguments != arguments:
+                self.logger.info(f"Argument mapping applied: {arguments} -> {mapped_arguments}")
+
+            # CRITICAL FALLBACK: Auto-correct 'Unknown Client' to prevent Odoo hang
+            if mapped_arguments.get('client_name') == 'Unknown Client':
+                self.logger.warning("⚠️ Detected 'Unknown Client'. Forcing fallback to 'Debug Client'.")
+                mapped_arguments['client_name'] = 'Debug Client'
+
+            # Call the method with arguments - Smart async detection
+            result = None
+            try:
+                if inspect.iscoroutinefunction(method):
+                    # Async method - use asyncio.run()
+                    result = asyncio.run(method(**mapped_arguments))
+                else:
+                    # Synchronous method - call directly
+                    result = method(**mapped_arguments)
+            except Exception as exec_error:
+                self.logger.error(
+                    f"Execution Failed for {action}: {exec_error}",
+                    exc_info=True
+                )
+                return None
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Error executing Odoo action '{action}': {e}", exc_info=True)
+            return None
+
+    def _execute_social_media_action(self, action, arguments, original_file_path):
+        """
+        Execute a Social Media tool action.
+
+        Args:
+            action (str): Action name (e.g., "post_to_facebook")
+            arguments (dict): Tool arguments
+            original_file_path (Path): Path to the original action file
+
+        Returns:
+            dict: Action result or None if failed
+        """
+        try:
+            # Instantiate the skill
+            skill = SocialMediaSkill()
+
+            # Get the method
+            method = getattr(skill, action, None)
+
+            if method is None:
+                self.logger.error(f"Action '{action}' not found in SocialMediaSkill")
+                return None
+
+            # Call the method with arguments - Smart async detection with safety net
+            result = None
+            try:
+                if inspect.iscoroutinefunction(method):
+                    # Async method - use asyncio.run()
+                    result = asyncio.run(method(**arguments))
+                else:
+                    # Synchronous method - call directly
+                    result = method(**arguments)
+            except Exception as exec_error:
+                self.logger.error(
+                    f"Execution Failed for {action}: {exec_error}",
+                    exc_info=True
+                )
+                return None
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Error executing Social Media action '{action}': {e}", exc_info=True)
+            return None
 
     def process_approved_file(self, file_path):
         """

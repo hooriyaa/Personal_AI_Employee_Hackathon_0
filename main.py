@@ -1,10 +1,15 @@
 """
 Main entry point for the Gmail Reasoning Loop application.
 
-This script orchestrates the different components of the system:
+This script orchestrates the different components of the system using the
+Agent Skills architecture:
 - Gmail Watcher: Monitors Gmail for new emails
-- Plan Generation Skill: Creates action plans for tasks
+- Skills Registry: Dynamic skill loading and management
 - File System Watcher: Monitors file system changes
+- Action Runner: Executes approved actions
+
+Architecture: Local-First AI Employee with Agent Skills
+Tiers: Bronze (Plan Generation) → Silver (LinkedIn) → Gold (Business Ops)
 """
 
 import threading
@@ -13,9 +18,10 @@ import logging
 import signal
 import sys
 from datetime import datetime
+from pathlib import Path
 
+# Import core components
 from src.gmail.gmail_watcher import GmailWatcher
-from skills.plan_generation_skill import PlanGenerationSkill
 from src.filesystem.watcher import FileSystemWatcher
 from src.action_runner import ActionRunner
 from src.config.settings import (
@@ -23,17 +29,60 @@ from src.config.settings import (
     APPROVED_DIR, DONE_DIR, LOGS_DIR
 )
 
+# Import Skill Registry for dynamic skill loading
+from src.skills.registry import (
+    get_registry,
+    register_all_skills,
+    execute_skill,
+    list_all_skills
+)
+
+# Import specific skills for direct use (Silver/Gold tier)
+from src.skills.plan_generation_skill import PlanGenerationSkill
+from src.skills.linkedin_skill import LinkedInSkill
+from src.skills.accounting_odoo_skill import AccountingOdooSkill
+from src.skills.social_media_skill import SocialMediaSkill
+from src.skills.ceo_briefing_skill import CEOBriefingSkill
+from src.skills.file_manager_skill import FileManagerSkill
+
 
 class GmailReasoningLoop:
-    """Main orchestrator for the Gmail Reasoning Loop application."""
+    """
+    Main orchestrator for the Gmail Reasoning Loop application.
+    
+    Follows the Perception → Reasoning → Action → Audit loop:
+    - Perception: Gmail Watcher, FileSystem Watcher
+    - Reasoning: Plan Generation Skill, CEO Briefing Skill
+    - Action: LinkedIn Skill, Accounting Skill, Social Media Skill
+    - Audit: Execution logging via Skill Registry
+    """
 
     def __init__(self):
-        """Initialize the main application."""
+        """Initialize the main application with dynamic skill loading."""
+        # Initialize Skill Registry first
+        self.skill_registry = register_all_skills()
+        self.logger = logging.getLogger(__name__)
+        
+        # Log registered skills
+        self._log_registered_skills()
+        
+        # Core components
         self.gmail_watcher = GmailWatcher()
-        self.plan_skill = PlanGenerationSkill()
         self.file_system_watcher = FileSystemWatcher()
         self.action_runner = ActionRunner()
-
+        
+        # Silver Tier Skills - Direct instantiation for performance
+        self.plan_skill = PlanGenerationSkill()
+        self.linkedin_skill = LinkedInSkill()
+        
+        # Gold Tier Skills - Business operations
+        self.accounting_skill = AccountingOdooSkill()
+        self.social_media_skill = SocialMediaSkill()
+        self.ceo_briefing_skill = CEOBriefingSkill()
+        
+        # Core Skills - File operations
+        self.file_manager = FileManagerSkill()
+        
         # Thread management
         self.threads = []
         self.running = False
@@ -48,6 +97,19 @@ class GmailReasoningLoop:
             ]
         )
         self.logger = logging.getLogger(__name__)
+    
+    def _log_registered_skills(self):
+        """Log all registered skills for audit purposes."""
+        self.logger.info("=" * 50)
+        self.logger.info("Skill Registry Initialized")
+        self.logger.info("=" * 50)
+        
+        for tier in ["Core", "Bronze", "Silver", "Gold"]:
+            skills = self.skill_registry.get_skills_by_tier(tier)
+            if skills:
+                self.logger.info(f"{tier} Tier Skills: {', '.join(skills)}")
+        
+        self.logger.info("=" * 50)
 
     def setup_file_system_monitoring(self):
         """Set up file system monitoring for relevant directories."""

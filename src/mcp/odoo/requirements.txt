@@ -1,0 +1,14 @@
+# Odoo MCP Server Dependencies
+# Gold Tier - Production Ready
+
+# Model Context Protocol SDK
+mcp>=1.0.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# XML-RPC client (stdlib, documented for clarity)
+# xmlrpc.client is part of Python standard library (no install needed)
+
+# Async support (stdlib, documented for clarity)
+# asyncio is part of Python standard library (no install needed)

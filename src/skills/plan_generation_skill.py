@@ -338,9 +338,147 @@ content: {linkedin_post_content}"""
                 full_text_to_analyze = f"{subject_lower} {content_lower}"
 
                 # Step A (Analyze): Check the combined subject and body for keywords to determine the "Intent"
+                # CRITICAL: Check for TOOL ACTIONS first before classifying as regular email intents
+
+                # Detect tool-based actions that require approval_request format (NOT email_send)
+                requires_tool_action = False
+                tool_name = None
+                tool_action = None
+                tool_args = {}
+                tool_description = ""
+
+                # Check for Odoo invoice creation
+                if any(keyword in full_text_to_analyze for keyword in ['create invoice', 'generate invoice', 'make invoice', 'billing', 'invoice for']):
+                    requires_tool_action = True
+                    tool_name = "AccountingOdooSkill"
+                    tool_action = "create_invoice"
+                    tool_description = f"Create an invoice in Odoo"
+                    
+                    # Extract invoice details from content
+                    # Try to find customer name (look for patterns like "for X", "client X", "customer X")
+                    customer_match = re.search(r'(?:for|client|customer|to)\s+([A-Z][a-zA-Z\s]+?)(?:\s+for|\s+of|\s+in|\s+amount|$)', content, re.IGNORECASE)
+                    customer = customer_match.group(1).strip() if customer_match else "Unknown Client"
+                    
+                    # Try to find amount (look for currency patterns)
+                    amount_match = re.search(r'(?:\$|€|£|Rs\.|PKR\s*)?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', content)
+                    amount = float(amount_match.group(1).replace(',', '')) if amount_match else 0.0
+                    
+                    # Try to find description
+                    desc_match = re.search(r'(?:for|description|service|product):\s*(.+?)(?:\.|$)', content, re.IGNORECASE)
+                    description = desc_match.group(1).strip() if desc_match else "Consulting Services"
+                    
+                    tool_args = {
+                        "customer": customer,
+                        "amount": amount,
+                        "description": description
+                    }
+                    self.logger.info(f"Detected tool action: Create Invoice for {customer}, amount: {amount}")
+
+                # Check for social media posting
+                elif any(keyword in full_text_to_analyze for keyword in ['post to twitter', 'tweet', 'post to facebook', 'facebook post', 'social media post']):
+                    requires_tool_action = True
+                    tool_name = "SocialMediaSkill"
+                    
+                    # Extract the content to post
+                    content_match = re.search(r'(?:content|message|text|say|write|post):\s*(.+?)(?:\.|$)', content, re.IGNORECASE)
+                    post_content = content_match.group(1).strip() if content_match else "Check out this update!"
+                    
+                    if any(kw in full_text_to_analyze for kw in ['twitter', 'tweet', 'x.com']):
+                        tool_action = "post_to_twitter"
+                        tool_args = {"text": post_content}
+                        tool_description = "Post to Twitter/X"
+                        self.logger.info("Detected tool action: Post to Twitter")
+                    elif any(kw in full_text_to_analyze for kw in ['facebook', 'fb', 'meta']):
+                        tool_action = "post_to_facebook"
+                        tool_args = {"message": post_content}
+                        tool_description = "Post to Facebook"
+                        self.logger.info("Detected tool action: Post to Facebook")
+                
+                # Check for database operations
+                elif any(keyword in full_text_to_analyze for keyword in ['create record', 'update database', 'database entry', 'odoo record']):
+                    requires_tool_action = True
+                    tool_name = "AccountingOdooSkill"
+                    tool_action = "create_record"
+                    tool_description = "Create/Update record in Odoo database"
+                    
+                    # Extract record details
+                    model_match = re.search(r'(?:model|table|type):\s*(\w+)', content, re.IGNORECASE)
+                    model = model_match.group(1) if model_match else "res.partner"
+                    
+                    tool_args = {
+                        "model": model,
+                        "data": {}  # Would need more sophisticated parsing for actual data
+                    }
+                    self.logger.info("Detected tool action: Odoo Database Operation")
+
+                if requires_tool_action:
+                    # Create approval_request format instead of email_send
+                    # This is the CORRECT format for tool actions
+                    # 
+                    # FEW-SHOT EXAMPLE (for reference):
+                    # User: "Create an invoice for Test Client for 5000"
+                    # Assistant:
+                    # {
+                    #   "type": "approval_request",
+                    #   "tool": "AccountingOdooSkill",
+                    #   "action": "create_invoice",
+                    #   "args": {
+                    #     "customer": "Test Client",
+                    #     "amount": 5000,
+                    #     "description": "Consulting Services"
+                    #   },
+                    #   "description": "Create an invoice in Odoo for Test Client"
+                    # }
+                    #
+                    # CRITICAL RULE: Never use type: email_send for tool actions!
+                    
+                    approval_content = f"""type: approval_request
+tool: {tool_name}
+action: {tool_action}
+priority: HIGH
+description: {tool_description}
+
+---
+Tool Arguments:
+{tool_args}
+---
+
+Approval Instructions (HITL Workflow):
+1. Review the requested tool action above carefully
+2. Verify the arguments are correct
+3. Move this file to Approved/ directory to execute
+4. System will automatically call the MCP tool: {tool_name}.{tool_action}
+5. Result will be logged to audit trail
+
+---
+NEGATIVE CONSTRAINT (CRITICAL RULE):
+- If the task requires performing a system action (like creating an invoice in Odoo, 
+  posting to Twitter/Facebook, or database operations), the output type MUST be 
+  approval_request with the correct tool and action.
+- Do NOT use type: email_send for these tasks.
+- Never draft an email when a tool action is requested.
+- Tool actions require explicit human approval before execution.
+"""
+                    
+                    # Create approval file name
+                    task_stem = task_file_path.stem
+                    safe_task_stem = sanitize_filename(task_stem)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    approval_filename = f"APPROVAL_{timestamp}_{safe_task_stem}.txt"
+                    
+                    approval_file_path = PENDING_APPROVAL_DIR / approval_filename
+                    
+                    # Write the approval content
+                    with open(approval_file_path, 'w', encoding='utf-8') as f:
+                        f.write(approval_content)
+                    
+                    self.logger.info(f"Created tool approval file: {approval_file_path}")
+                    return approval_file_path
+                
+                # Continue with regular email intent classification if no tool action detected
                 if any(keyword in full_text_to_analyze for keyword in ['schedule', 'availability', 'time']):
                     intent = "SCHEDULING"
-                elif any(keyword in full_text_to_analyze for keyword in ['price', 'quote', 'invoice', 'cost']):
+                elif any(keyword in full_text_to_analyze for keyword in ['price', 'quote', 'cost']):
                     intent = "BUSINESS"
                 elif any(keyword in full_text_to_analyze for keyword in ['job', 'hiring', 'resume', 'opportunity']):
                     intent = "CAREER"
@@ -777,9 +915,9 @@ subject: Re: {original_subject}
                 # Create destination path in Done directory
                 dest_path = done_dir / task_file.name
 
-                # Move the file
+                # Move the file (overwrite if destination exists)
                 try:
-                    if move_file(task_file, dest_path):
+                    if move_file(task_file, dest_path, overwrite=True):
                         self.logger.info(f"Moved task file from Needs_Action to Done: {task_file.name}")
                     else:
                         self.logger.warning(f"Failed to move task file: {task_file.name}")
