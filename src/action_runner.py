@@ -535,11 +535,6 @@ class ActionRunner:
             if mapped_arguments != arguments:
                 self.logger.info(f"Argument mapping applied: {arguments} -> {mapped_arguments}")
 
-            # CRITICAL FALLBACK: Auto-correct 'Unknown Client' to prevent Odoo hang
-            if mapped_arguments.get('client_name') == 'Unknown Client':
-                self.logger.warning("⚠️ Detected 'Unknown Client'. Forcing fallback to 'Debug Client'.")
-                mapped_arguments['client_name'] = 'Debug Client'
-
             # Call the method with arguments - Smart async detection
             result = None
             try:
