@@ -387,21 +387,37 @@ class OdooMCPServer:
             raise ConnectionError("Odoo client not initialized. Check credentials.")
 
         try:
+            # Ensure amount is a float
+            amount = float(amount)
+            
+            # DEBUG: Print parameters before XML-RPC calls
+            logger.info(f"🔍 DEBUG: create_invoice called with:")
+            logger.info(f"   partner_name: '{partner_name}' (type: {type(partner_name).__name__})")
+            logger.info(f"   amount: {amount} (type: {type(amount).__name__})")
+            logger.info(f"   description: '{description}' (type: {type(description).__name__})")
+            logger.info(f"   Odoo client authenticated: {self.client.authenticated}")
+            logger.info(f"   Odoo URL: {self.client.url}")
+
             # Search for existing partner
             partner_domain = [('name', 'ilike', partner_name)]
+            logger.info(f"🔍 DEBUG: About to call search_read on res.partner")
+            logger.info(f"   Domain: {partner_domain}")
             partners = self.client.search_read('res.partner', partner_domain,
                                                ['id', 'name'], limit=1)
+            logger.info(f"🔍 DEBUG: search_read returned: {partners}")
 
             if partners:
                 partner_id = partners[0]['id']
                 logger.info(f"Found existing partner: {partner_id} - {partners[0]['name']}")
             else:
                 # Create new partner
+                logger.info(f"🔍 DEBUG: Partner not found, creating new partner: '{partner_name}'")
                 partner_id = self.client.execute_kw(
                     'res.partner',
                     'create',
                     [[{'name': partner_name}]]
                 )
+                logger.info(f"🔍 DEBUG: New partner created with ID: {partner_id}")
                 logger.info(f"Created new partner: {partner_id} - {partner_name}")
 
             # Create invoice header (account.move)
@@ -419,11 +435,18 @@ class OdooMCPServer:
                 ]
             }
 
+            # DEBUG: Print right before execute_kw
+            logger.info(f"🔍 DEBUG: About to call models.execute_kw for account.move.create")
+            logger.info(f"   Invoice data: {invoice_data}")
+            logger.info(f"   models proxy: {self.client.models}")
+            
             invoice_id = self.client.execute_kw(
                 'account.move',
                 'create',
                 [[invoice_data]]
             )
+            
+            logger.info(f"🔍 DEBUG: Invoice created with ID: {invoice_id}")
 
             # Read back the invoice to get the invoice number
             invoice_data = self.client.execute_kw(
@@ -445,13 +468,13 @@ class OdooMCPServer:
                 "created_at": datetime.now().isoformat()
             }
 
-            logger.info(f"Created invoice {invoice_number} for {partner_name}: ${amount}")
+            logger.info(f"✅ Created invoice {invoice_number} for {partner_name}: ${amount}")
             return result
 
         except (ConnectionError, AuthenticationError):
             raise
         except Exception as e:
-            logger.error(f"Error creating invoice: {e}")
+            logger.error(f"❌ Error creating invoice: {e}", exc_info=True)
             raise OdooError(f"Failed to create invoice: {e}")
 
     async def _get_total_revenue(self) -> Dict[str, Any]:
