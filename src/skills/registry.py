@@ -332,11 +332,18 @@ def _register_default_skills(registry: SkillRegistry):
     registry.register(
         name="SocialMediaSkill",
         tier="Gold",
-        description="Cross-platform social media posting (Facebook, Instagram, X/Twitter)",
+        description="Cross-platform social media posting (Facebook, Instagram, X/Twitter) with social summary generation",
         module_path="src.skills.social_media_skill",
         class_name="SocialMediaSkill",
         hitl_required=True,
-        functions=["post_to_facebook", "post_to_instagram", "post_to_twitter", "execute_approved_post"]
+        functions=[
+            "post_to_facebook",
+            "post_to_twitter",
+            "post_to_instagram",
+            "post_to_social_platforms",
+            "generate_social_summary",
+            "execute_approved_post"
+        ]
     )
     
     registry.register(

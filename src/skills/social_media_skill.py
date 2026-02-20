@@ -4,18 +4,22 @@ Social Media Skill - Manages cross-platform social media posts with MCP integrat
 This skill provides functions to:
 - Post to Facebook (via MCP server - real API)
 - Post to X/Twitter (via MCP server - real API)
+- Post to Instagram (via Playwright automation)
+- Generate social media activity summaries
+
+Gold Tier Features:
+- Uses persistent browser context (chrome_data) for authenticated sessions
+- Cross-platform posting: Facebook, Instagram, Twitter/X
+- Social summary generation with notification scraping
+- HITL approval workflow
+- Full audit logging
+- Error handling for API failures
 
 Human-in-the-Loop (HITL) Pattern (Document Page 4, Requirement 6):
 1. Agent creates draft post in Pending_Approval/ directory
 2. Human reviews and moves file to Approved/ directory
 3. Only then does the skill call the MCP server tool to execute the post
 4. Result is logged to audit trail
-
-Gold Tier Compliance:
-- Uses MCP server for actual API calls (not mocks)
-- Enforces HITL approval workflow
-- Full audit logging
-- Error handling for API failures
 """
 
 import json
@@ -34,6 +38,14 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from src.config.settings import PENDING_APPROVAL_DIR, APPROVED_DIR, LOGS_DIR
 
+# Import Playwright-based poster for Gold Tier features
+try:
+    from src.social_media.poster import SocialMediaPoster
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    logging.warning("Playwright poster module not available. Install playwright for Gold Tier features.")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +63,11 @@ class SocialMediaSkill:
     2. Wait for human approval (file moved to Approved/)
     3. Execute actual post via MCP server upon approval
 
+    Gold Tier Features:
+    - Cross-platform posting: Facebook, Instagram, Twitter/X
+    - Social summary generation
+    - Persistent browser context for authenticated sessions
+
     IMPORTANT: This skill does NOT call MCP server directly.
     The approval workflow is:
     - Skill creates Pending_Approval file
@@ -59,20 +76,32 @@ class SocialMediaSkill:
     """
 
     def __init__(self, pending_approval_dir: Optional[Path] = None,
-                 approved_dir: Optional[Path] = None):
+                 approved_dir: Optional[Path] = None,
+                 chrome_data_dir: Optional[str] = None):
         """
         Initialize the social media skill.
 
         Args:
             pending_approval_dir: Directory for pending approval posts
             approved_dir: Directory for approved posts
+            chrome_data_dir: Directory for Chrome persistent profile
         """
         self.pending_approval_dir = pending_approval_dir or PENDING_APPROVAL_DIR
         self.approved_dir = approved_dir or APPROVED_DIR
+        self.chrome_data_dir = chrome_data_dir
 
         # Ensure directories exist
         self.pending_approval_dir.mkdir(parents=True, exist_ok=True)
         self.approved_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize Playwright poster if available
+        self.poster = None
+        if PLAYWRIGHT_AVAILABLE:
+            try:
+                self.poster = SocialMediaPoster(chrome_data_dir=self.chrome_data_dir)
+                logger.info("Playwright poster initialized for Gold Tier features")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Playwright poster: {e}")
 
         # Platform configuration
         self.platforms = {
@@ -89,6 +118,13 @@ class SocialMediaSkill:
                 "supports_images": False,
                 "supports_hashtags": True,
                 "mcp_tool": "post_to_twitter"
+            },
+            "instagram": {
+                "name": "Instagram",
+                "max_length": 2200,
+                "supports_images": True,
+                "supports_hashtags": True,
+                "mcp_tool": None  # Uses Playwright automation
             }
         }
 
@@ -354,6 +390,225 @@ When approved, the system will:
                 "error": str(e)
             }
 
+    def post_to_social_platforms(self, content: str,
+                                  platforms: Optional[List[str]] = None,
+                                  wait_for_login_timeout: int = 120) -> Dict[str, Any]:
+        """
+        Post content to multiple social media platforms using Playwright.
+
+        Gold Tier Feature: Uses persistent browser context (chrome_data) for authenticated sessions.
+        Platforms: Facebook, Instagram, Twitter/X
+
+        Args:
+            content: The content to post
+            platforms: List of platforms to post to. Defaults to ['facebook', 'instagram', 'twitter']
+            wait_for_login_timeout: Seconds to wait for login per platform
+
+        Returns:
+            Dictionary with results for each platform:
+            {
+                "success": bool (overall),
+                "timestamp": str,
+                "platforms": {
+                    "facebook": { "success": bool, "message": str, ... },
+                    "instagram": { "success": bool, "message": str, ... },
+                    "twitter": { "success": bool, "message": str, ... }
+                }
+            }
+        """
+        timestamp = datetime.now().isoformat()
+
+        if not PLAYWRIGHT_AVAILABLE:
+            return {
+                "success": False,
+                "error": "Playwright not available. Install playwright for Gold Tier features.",
+                "timestamp": timestamp
+            }
+
+        if not self.poster:
+            return {
+                "success": False,
+                "error": "Playwright poster not initialized",
+                "timestamp": timestamp
+            }
+
+        logger.info("=" * 70)
+        logger.info("GOLD TIER: Cross-platform social media posting")
+        logger.info(f"Platforms: {platforms or ['facebook', 'instagram', 'twitter']}")
+        logger.info(f"Content preview: {content[:100]}...")
+        logger.info("=" * 70)
+
+        try:
+            result = self.poster.post_to_social_platforms(
+                content=content,
+                platforms=platforms,
+                wait_for_login_timeout=wait_for_login_timeout
+            )
+
+            # Write audit log
+            audit_entry = self._write_audit_log_generic("post_to_social_platforms", {
+                "content": content[:500],
+                "platforms": platforms,
+                "result": result
+            })
+
+            return {
+                "success": result.get("success", False),
+                "timestamp": timestamp,
+                "platforms": result.get("platforms", {}),
+                "summary": result.get("summary", {}),
+                "audit_log": audit_entry
+            }
+
+        except Exception as e:
+            logger.error(f"Error in cross-platform posting: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": timestamp
+            }
+
+    def generate_social_summary(self, platforms: Optional[List[str]] = None,
+                                 output_dir: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a social media activity summary by scraping notifications.
+
+        Gold Tier Feature: Scrapes notifications from Facebook, Instagram, and Twitter/X
+        and generates a markdown summary file at Briefings/Social_Summary.md
+
+        Args:
+            platforms: List of platforms to scrape. Defaults to ['facebook', 'instagram', 'twitter']
+            output_dir: Directory for output file. Defaults to ./Briefings
+
+        Returns:
+            Dictionary with summary generation result:
+            {
+                "success": bool,
+                "summary_file": str,
+                "total_notifications": int,
+                "platforms_scraped": int,
+                "timestamp": str,
+                "statistics": { ... }
+            }
+        """
+        timestamp = datetime.now().isoformat()
+
+        if not PLAYWRIGHT_AVAILABLE:
+            return {
+                "success": False,
+                "error": "Playwright not available. Install playwright for Gold Tier features.",
+                "timestamp": timestamp
+            }
+
+        if not self.poster:
+            return {
+                "success": False,
+                "error": "Playwright poster not initialized",
+                "timestamp": timestamp
+            }
+
+        logger.info("=" * 70)
+        logger.info("GOLD TIER: Generating Social Media Summary")
+        logger.info(f"Platforms: {platforms or ['facebook', 'instagram', 'twitter']}")
+        logger.info("=" * 70)
+
+        try:
+            result = self.poster.generate_social_summary(
+                platforms=platforms,
+                output_dir=output_dir
+            )
+
+            if result.get("success"):
+                logger.info(f"Social summary generated: {result.get('summary_file')}")
+                logger.info(f"Total notifications: {result.get('total_notifications')}")
+                logger.info(f"Statistics: {result.get('statistics')}")
+            else:
+                logger.error(f"Social summary failed: {result.get('error')}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error generating social summary: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": timestamp
+            }
+
+    def post_to_instagram(self, content: str,
+                           wait_for_login_timeout: int = 120) -> Dict[str, Any]:
+        """
+        Post content to Instagram using Playwright.
+
+        Gold Tier Feature: Uses persistent browser context for authenticated session.
+        HITL: Does NOT auto-submit - waits for human review.
+
+        Args:
+            content: Instagram post content (caption)
+            wait_for_login_timeout: Seconds to wait for login
+
+        Returns:
+            Dictionary with posting result
+        """
+        timestamp = datetime.now().isoformat()
+
+        if not PLAYWRIGHT_AVAILABLE:
+            return {
+                "success": False,
+                "error": "Playwright not available. Install playwright for Gold Tier features.",
+                "timestamp": timestamp
+            }
+
+        if not self.poster:
+            return {
+                "success": False,
+                "error": "Playwright poster not initialized",
+                "timestamp": timestamp
+            }
+
+        # Validate content length
+        max_length = self.platforms['instagram']['max_length']
+        if len(content) > max_length:
+            return {
+                "success": False,
+                "error": f"Content exceeds Instagram's {max_length} character limit (got {len(content)})",
+                "timestamp": timestamp
+            }
+
+        logger.info(f"Posting to Instagram (HITL mode)")
+        logger.info(f"Content preview: {content[:100]}...")
+
+        try:
+            result = self.poster.post_to_platform(
+                content=content,
+                platform="instagram",
+                wait_for_login_timeout=wait_for_login_timeout,
+                auto_submit=False  # HITL: Never auto-submit
+            )
+
+            # Write audit log
+            audit_entry = self._write_audit_log_generic("post_to_instagram", {
+                "content": content[:500],
+                "result": result
+            })
+
+            return {
+                "success": result.get("success", False),
+                "platform": "instagram",
+                "timestamp": timestamp,
+                "message": result.get("message", ""),
+                "human_action_required": result.get("human_action_required", ""),
+                "audit_log": audit_entry
+            }
+
+        except Exception as e:
+            logger.error(f"Error posting to Instagram: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": timestamp
+            }
+
     def execute_approved_post(self, approval_file_path: str,
                                mcp_client: Optional[Any] = None) -> Dict[str, Any]:
         """
@@ -533,6 +788,27 @@ When approved, the system will:
         logger.info(f"Audit log written: {audit_file}")
         return str(audit_file)
 
+    def _write_audit_log_generic(self, action: str, data: Dict[str, Any]) -> str:
+        """Write a generic audit log entry for Gold Tier actions."""
+        audit_dir = LOGS_DIR / "social_media"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audit_file = audit_dir / f"audit_{action}_{timestamp}.json"
+
+        audit_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "data": data,
+            "gold_tier": True
+        }
+
+        with open(audit_file, 'w', encoding='utf-8') as f:
+            json.dump(audit_entry, f, indent=2, default=str)
+
+        logger.info(f"Audit log written: {audit_file}")
+        return str(audit_file)
+
     def _archive_executed_post(self, original_path: Path,
                                 result: Dict[str, Any]) -> Path:
         """Archive the executed post file."""
@@ -646,9 +922,62 @@ def post_to_twitter(text: str) -> Dict[str, Any]:
     return skill.post_to_twitter(text)
 
 
+def post_to_instagram(content: str) -> Dict[str, Any]:
+    """
+    Post content to Instagram (Gold Tier feature).
+
+    Uses Playwright with persistent browser context.
+    Does NOT auto-submit - waits for human review (HITL).
+
+    Args:
+        content: Instagram post caption
+
+    Returns:
+        Post result dictionary
+    """
+    skill = SocialMediaSkill()
+    return skill.post_to_instagram(content)
+
+
+def post_to_social_platforms(content: str,
+                              platforms: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Post content to multiple social media platforms (Gold Tier feature).
+
+    Uses Playwright with persistent browser context for authenticated sessions.
+    Platforms: Facebook, Instagram, Twitter/X
+
+    Args:
+        content: Content to post
+        platforms: List of platforms. Defaults to ['facebook', 'instagram', 'twitter']
+
+    Returns:
+        Dictionary with results for each platform
+    """
+    skill = SocialMediaSkill()
+    return skill.post_to_social_platforms(content, platforms=platforms)
+
+
+def generate_social_summary(platforms: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Generate social media activity summary (Gold Tier feature).
+
+    Scrapes notifications from Facebook, Instagram, and Twitter/X
+    and generates Briefings/Social_Summary.md
+
+    Args:
+        platforms: List of platforms. Defaults to ['facebook', 'instagram', 'twitter']
+
+    Returns:
+        Dictionary with summary generation result
+    """
+    skill = SocialMediaSkill()
+    return skill.generate_social_summary(platforms=platforms)
+
+
 # Example usage and testing
 if __name__ == "__main__":
-    print("Testing Social Media Skill (HITL Pattern)...")
+    print("Testing Social Media Skill (Gold Tier)...")
     print("-" * 60)
 
     # Test Facebook post
@@ -677,3 +1006,9 @@ if __name__ == "__main__":
     print("2. Human must review and move files to Approved/")
     print("3. System will then execute via MCP server")
     print(f"\nCheck pending: {PENDING_APPROVAL_DIR}")
+    print("\n" + "=" * 60)
+    print("Gold Tier Features Available:")
+    print("- post_to_instagram(content)")
+    print("- post_to_social_platforms(content, platforms)")
+    print("- generate_social_summary(platforms)")
+    print("=" * 60)
